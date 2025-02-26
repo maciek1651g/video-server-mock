@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Video Streaming</title>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.8/shaka-player.compiled.js"></script>
+		<style>
+			body {
+				margin: 0;
+				padding: 20px;
+				background-color: #1a1a1a;
+				color: white;
+				font-family: Arial, sans-serif;
+			}
+			.container {
+				max-width: 1200px;
+				margin: 0 auto;
+			}
+			#videoContainer {
+				width: 100%;
+				aspect-ratio: 16/9;
+				background-color: black;
+				margin-bottom: 20px;
+			}
+			video {
+				width: 100%;
+				height: 100%;
+			}
+			h1,
+			h2 {
+				margin-bottom: 20px;
+			}
+			.error {
+				color: #ff5555;
+				padding: 10px;
+				margin: 10px 0;
+				background-color: rgba(255, 0, 0, 0.1);
+				border-radius: 4px;
+				display: none;
+			}
+			.network-controls {
+				background-color: #2a2a2a;
+				padding: 20px;
+				border-radius: 8px;
+				margin-bottom: 20px;
+			}
+			.control-group {
+				margin-bottom: 15px;
+			}
+			label {
+				display: block;
+				margin-bottom: 5px;
+			}
+			input[type="range"] {
+				width: 100%;
+				max-width: 300px;
+			}
+			.value-display {
+				display: inline-block;
+				margin-left: 10px;
+				min-width: 60px;
+			}
+			button {
+				background-color: #4caf50;
+				color: white;
+				padding: 10px 20px;
+				border: none;
+				border-radius: 4px;
+				cursor: pointer;
+			}
+			button:hover {
+				background-color: #45a049;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<h1>Video Player</h1>
+
+			<div class="network-controls">
+				<h2>Network Simulation Controls</h2>
+				<div class="control-group">
+					<label for="delay">Network Delay (ms)</label>
+					<input
+						type="range"
+						id="delay"
+						min="0"
+						max="2000"
+						step="50"
+						value="0"
+					/>
+					<span class="value-display" id="delayValue">0 ms</span>
+				</div>
+				<div class="control-group">
+					<label for="packetLoss">Packet Loss Probability</label>
+					<input
+						type="range"
+						id="packetLoss"
+						min="0"
+						max="1"
+						step="0.05"
+						value="0"
+					/>
+					<span class="value-display" id="packetLossValue">0%</span>
+				</div>
+				<button id="applySettings">Apply Settings</button>
+			</div>
+
+			<div id="videoContainer">
+				<video id="video" controls poster=""></video>
+			</div>
+			<div id="error" class="error"></div>
+		</div>
+
+		<script>
+			const apiBaseUrl = window.location.origin;
+			const errorElement = document.getElementById("error");
+			const delayInput = document.getElementById("delay");
+			const packetLossInput = document.getElementById("packetLoss");
+			const delayValue = document.getElementById("delayValue");
+			const packetLossValue = document.getElementById("packetLossValue");
+			const applyButton = document.getElementById("applySettings");
+
+			function showError(message) {
+				errorElement.style.display = "block";
+				errorElement.textContent = message;
+			}
+
+			// Update displayed values
+			delayInput.addEventListener("input", () => {
+				delayValue.textContent = `${delayInput.value} ms`;
+			});
+
+			packetLossInput.addEventListener("input", () => {
+				packetLossValue.textContent = `${(
+					packetLossInput.value * 100
+				).toFixed(1)}%`;
+			});
+
+			// Apply network settings
+			applyButton.addEventListener("click", async () => {
+				try {
+					const response = await fetch(`${apiBaseUrl}/api/network`, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							delay: Number(delayInput.value),
+							packetLoss: Number(packetLossInput.value),
+						}),
+					});
+
+					if (!response.ok) {
+						throw new Error(
+							`HTTP error! status: ${response.status}`
+						);
+					}
+
+					const result = await response.json();
+					console.log("Network settings updated:", result);
+				} catch (error) {
+					console.error("Error updating network settings:", error);
+					showError(
+						`Error updating network settings: ${error.message}`
+					);
+				}
+			});
+
+			// Load current network settings
+			async function loadNetworkSettings() {
+				try {
+					const response = await fetch(`${apiBaseUrl}/api/network`);
+					if (!response.ok) {
+						throw new Error(
+							`HTTP error! status: ${response.status}`
+						);
+					}
+					const settings = await response.json();
+
+					delayInput.value = settings.delay;
+					packetLossInput.value = settings.packetLoss;
+					delayValue.textContent = `${settings.delay} ms`;
+					packetLossValue.textContent = `${(
+						settings.packetLoss * 100
+					).toFixed(1)}%`;
+				} catch (error) {
+					console.error("Error loading network settings:", error);
+				}
+			}
+
+			const initPlayer = async () => {
+				const video = document.getElementById("video");
+				const player = new shaka.Player(video);
+
+				try {
+					// Get video metadata from the server
+					const response = await fetch(`${apiBaseUrl}/api/video`);
+					if (!response.ok) {
+						throw new Error(
+							`HTTP error! status: ${response.status}`
+						);
+					}
+					const videoData = await response.json();
+
+					// Set poster
+					video.poster = videoData.poster;
+
+					// Load the manifest
+					await player.load(videoData.url);
+					console.log("The video has been loaded");
+				} catch (error) {
+					console.error("Error loading video:", error);
+					showError(`Error loading video: ${error.message}`);
+				}
+			};
+
+			// Check if the browser supports the Shaka Player
+			if (shaka.Player.isBrowserSupported()) {
+				shaka.polyfill.installAll();
+				initPlayer();
+				loadNetworkSettings();
+			} else {
+				const message =
+					"Your browser does not support the Shaka Player";
+				console.error(message);
+				showError(message);
+			}
+		</script>
+	</body>
+</html>
